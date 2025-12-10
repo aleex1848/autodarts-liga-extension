@@ -1,7 +1,7 @@
 {
   "name": "autodarts-liga",
   "description": "Sendet Autodarts-Spieldaten an autodarts-liga.de",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "license": "MIT",
   "scripts": {
