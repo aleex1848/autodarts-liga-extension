@@ -9,8 +9,6 @@ on:
 jobs:
   check-and-release:
     runs-on: ubuntu-latest
-    # Nur ausführen, wenn package.json geändert wurde
-    if: contains(github.event.head_commit.modified, 'package.json') || contains(github.event.head_commit.added, 'package.json')
     
     steps:
       - name: Checkout code
@@ -18,20 +16,48 @@ jobs:
         with:
           fetch-depth: 0  # Benötigt für Tag-Prüfung
       
+      - name: Check if package.json was modified
+        id: check_package
+        run: |
+          # Prüfe ob es einen vorherigen Commit gibt
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            # Vergleiche mit vorherigem Commit
+            if git diff --name-only HEAD~1 HEAD | grep -q "^package.json$"; then
+              echo "modified=true" >> $GITHUB_OUTPUT
+              echo "package.json wurde geändert"
+            else
+              echo "modified=false" >> $GITHUB_OUTPUT
+              echo "package.json wurde nicht geändert"
+            fi
+          else
+            # Erster Commit - prüfe ob package.json existiert
+            if [ -f package.json ]; then
+              echo "modified=true" >> $GITHUB_OUTPUT
+              echo "Erster Commit mit package.json"
+            else
+              echo "modified=false" >> $GITHUB_OUTPUT
+              echo "package.json existiert nicht"
+            fi
+          fi
+      
       - name: Setup Node.js
+        if: steps.check_package.outputs.modified == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'yarn'
       
       - name: Install dependencies
+        if: steps.check_package.outputs.modified == 'true'
         run: yarn install --frozen-lockfile
       
       - name: Extract version from package.json
+        if: steps.check_package.outputs.modified == 'true'
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       
       - name: Check if tag exists
+        if: steps.check_package.outputs.modified == 'true'
         id: check_tag
         run: |
           TAG="v${{ steps.version.outputs.version }}"
@@ -44,7 +70,7 @@ jobs:
           fi
       
       - name: Create and push tag
-        if: steps.check_tag.outputs.exists == 'false'
+        if: steps.check_package.outputs.modified == 'true' && steps.check_tag.outputs.exists == 'false'
         run: |
           TAG="v${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
@@ -53,18 +79,23 @@ jobs:
           git push origin "$TAG"
       
       - name: Build Chrome extension
+        if: steps.check_package.outputs.modified == 'true'
         run: yarn build
       
       - name: Build Firefox extension
+        if: steps.check_package.outputs.modified == 'true'
         run: yarn build:firefox
       
       - name: Create Chrome ZIP
+        if: steps.check_package.outputs.modified == 'true'
         run: yarn zip
       
       - name: Create Firefox ZIP
+        if: steps.check_package.outputs.modified == 'true'
         run: yarn zip:firefox
       
       - name: Find ZIP files
+        if: steps.check_package.outputs.modified == 'true'
         id: find_zips
         run: |
           CHROME_ZIP=$(ls .output/chrome-mv3-*.zip | head -1)
@@ -75,7 +106,7 @@ jobs:
           echo "Firefox ZIP: $FIREFOX_ZIP"
       
       - name: Create Release
-        if: steps.check_tag.outputs.exists == 'false'
+        if: steps.check_package.outputs.modified == 'true' && steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
