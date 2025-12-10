@@ -99,16 +99,64 @@ jobs:
         if: steps.check_package.outputs.modified == 'true'
         run: yarn zip:firefox
       
+      - name: List output directory
+        if: steps.check_package.outputs.modified == 'true'
+        run: |
+          echo "Output directory contents:"
+          ls -la .output/ || echo "No .output directory found"
+          echo ""
+          echo "ZIP files:"
+          find .output -name "*.zip" -type f 2>/dev/null || echo "No ZIP files found"
+      
       - name: Find ZIP files
         if: steps.check_package.outputs.modified == 'true'
         id: find_zips
         run: |
-          CHROME_ZIP=$(ls .output/chrome-mv3-*.zip | head -1)
-          FIREFOX_ZIP=$(ls .output/firefox-mv3-*.zip | head -1)
-          echo "chrome_zip=$CHROME_ZIP" >> $GITHUB_OUTPUT
-          echo "firefox_zip=$FIREFOX_ZIP" >> $GITHUB_OUTPUT
-          echo "Chrome ZIP: $CHROME_ZIP"
-          echo "Firefox ZIP: $FIREFOX_ZIP"
+          # Suche nach ZIP-Dateien - verschiedene mögliche Namen
+          CHROME_ZIP=$(find .output -name "chrome-mv3*.zip" -type f 2>/dev/null | head -1)
+          FIREFOX_ZIP=$(find .output -name "firefox-mv3*.zip" -type f 2>/dev/null | head -1)
+          
+          # Fallback: Suche nach allen Chrome/Firefox ZIPs
+          if [ -z "$CHROME_ZIP" ]; then
+            CHROME_ZIP=$(find .output -name "*chrome*.zip" -type f 2>/dev/null | head -1)
+          fi
+          
+          if [ -z "$FIREFOX_ZIP" ]; then
+            FIREFOX_ZIP=$(find .output -name "*firefox*.zip" -type f 2>/dev/null | head -1)
+          fi
+          
+          # Fallback: Suche nach allen ZIPs im .output Verzeichnis
+          if [ -z "$CHROME_ZIP" ] && [ -z "$FIREFOX_ZIP" ]; then
+            ALL_ZIPS=($(find .output -name "*.zip" -type f 2>/dev/null))
+            if [ ${#ALL_ZIPS[@]} -ge 1 ]; then
+              CHROME_ZIP="${ALL_ZIPS[0]}"
+            fi
+            if [ ${#ALL_ZIPS[@]} -ge 2 ]; then
+              FIREFOX_ZIP="${ALL_ZIPS[1]}"
+            elif [ ${#ALL_ZIPS[@]} -eq 1 ]; then
+              # Wenn nur eine ZIP existiert, nehmen wir an es ist Chrome
+              CHROME_ZIP="${ALL_ZIPS[0]}"
+            fi
+          fi
+          
+          if [ -n "$CHROME_ZIP" ]; then
+            echo "chrome_zip=$CHROME_ZIP" >> $GITHUB_OUTPUT
+            echo "✓ Chrome ZIP gefunden: $CHROME_ZIP"
+          else
+            echo "✗ Chrome ZIP nicht gefunden"
+          fi
+          
+          if [ -n "$FIREFOX_ZIP" ]; then
+            echo "firefox_zip=$FIREFOX_ZIP" >> $GITHUB_OUTPUT
+            echo "✓ Firefox ZIP gefunden: $FIREFOX_ZIP"
+          else
+            echo "✗ Firefox ZIP nicht gefunden"
+          fi
+          
+          if [ -z "$CHROME_ZIP" ] && [ -z "$FIREFOX_ZIP" ]; then
+            echo "FEHLER: Keine ZIP-Dateien gefunden!"
+            exit 1
+          fi
       
       - name: Create Release
         if: steps.check_package.outputs.modified == 'true' && steps.check_tag.outputs.exists == 'false'
@@ -122,8 +170,8 @@ jobs:
             Automatisch erstellt aus package.json
             
             ### Downloads
-            - **Chrome Extension**: Lade die `chrome-mv3-*.zip` Datei herunter
-            - **Firefox Extension**: Lade die `firefox-mv3-*.zip` Datei herunter
+            - **Chrome Extension**: Lade die ZIP-Datei herunter
+            - **Firefox Extension**: Lade die ZIP-Datei herunter
             
             ### Installation
             1. Lade die entsprechende ZIP-Datei herunter
