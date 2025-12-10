@@ -1,0 +1,105 @@
+name: Auto Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    # Nur ausführen, wenn package.json geändert wurde
+    if: contains(github.event.head_commit.modified, 'package.json') || contains(github.event.head_commit.added, 'package.json')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Benötigt für Tag-Prüfung
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+      
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      
+      - name: Extract version from package.json
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+      
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG existiert bereits"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG existiert noch nicht"
+          fi
+      
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+      
+      - name: Build Chrome extension
+        run: yarn build
+      
+      - name: Build Firefox extension
+        run: yarn build:firefox
+      
+      - name: Create Chrome ZIP
+        run: yarn zip
+      
+      - name: Create Firefox ZIP
+        run: yarn zip:firefox
+      
+      - name: Find ZIP files
+        id: find_zips
+        run: |
+          CHROME_ZIP=$(ls .output/chrome-mv3-*.zip | head -1)
+          FIREFOX_ZIP=$(ls .output/firefox-mv3-*.zip | head -1)
+          echo "chrome_zip=$CHROME_ZIP" >> $GITHUB_OUTPUT
+          echo "firefox_zip=$FIREFOX_ZIP" >> $GITHUB_OUTPUT
+          echo "Chrome ZIP: $CHROME_ZIP"
+          echo "Firefox ZIP: $FIREFOX_ZIP"
+      
+      - name: Create Release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          body: |
+            ## Version ${{ steps.version.outputs.version }}
+            
+            Automatisch erstellt aus package.json
+            
+            ### Downloads
+            - **Chrome Extension**: Lade die `chrome-mv3-*.zip` Datei herunter
+            - **Firefox Extension**: Lade die `firefox-mv3-*.zip` Datei herunter
+            
+            ### Installation
+            1. Lade die entsprechende ZIP-Datei herunter
+            2. Entpacke sie (optional)
+            3. Lade die Extension in deinem Browser:
+               - **Chrome**: `chrome://extensions/` → Entwicklermodus aktivieren → "Entpackte Erweiterung laden"
+               - **Firefox**: `about:debugging#/runtime/this-firefox` → "Temporäres Add-on laden"
+          files: |
+            ${{ steps.find_zips.outputs.chrome_zip }}
+            ${{ steps.find_zips.outputs.firefox_zip }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

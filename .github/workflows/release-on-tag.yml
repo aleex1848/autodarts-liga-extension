@@ -1,0 +1,73 @@
+name: Release on Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+      
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      
+      - name: Build Chrome extension
+        run: yarn build
+      
+      - name: Build Firefox extension
+        run: yarn build:firefox
+      
+      - name: Create Chrome ZIP
+        run: yarn zip
+      
+      - name: Create Firefox ZIP
+        run: yarn zip:firefox
+      
+      - name: Find ZIP files
+        id: find_zips
+        run: |
+          CHROME_ZIP=$(ls .output/chrome-mv3-*.zip | head -1)
+          FIREFOX_ZIP=$(ls .output/firefox-mv3-*.zip | head -1)
+          echo "chrome_zip=$CHROME_ZIP" >> $GITHUB_OUTPUT
+          echo "firefox_zip=$FIREFOX_ZIP" >> $GITHUB_OUTPUT
+      
+      - name: Get tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.find_zips.outputs.chrome_zip }}
+            ${{ steps.find_zips.outputs.firefox_zip }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          body: |
+            ## ${{ steps.tag.outputs.tag }}
+            
+            ### Downloads
+            - **Chrome Extension**: `chrome-mv3-*.zip`
+            - **Firefox Extension**: `firefox-mv3-*.zip`
+            
+            ### Installation
+            1. Lade die entsprechende ZIP-Datei herunter
+            2. Entpacke sie (optional)
+            3. Lade die Extension in deinem Browser:
+               - **Chrome**: `chrome://extensions/` → Entwicklermodus aktivieren → "Entpackte Erweiterung laden"
+               - **Firefox**: `about:debugging#/runtime/this-firefox` → "Temporäres Add-on laden"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
